@@ -349,6 +349,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 }
 
 func (s *Server) EmbedHandler(c *gin.Context) {
+	fmt.Println("DEBUG: EmbedHandler reached")
 	checkpointStart := time.Now()
 	var req api.EmbedRequest
 	err := c.ShouldBindJSON(&req)
@@ -361,31 +362,90 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 		return
 	}
 
+	fmt.Println("DEBUG: New code compiled and executed!")
+
+	// Validate input
+	if req.Input == nil && len(req.Images) == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "input or images is required"})
+		return
+	}
+	if req.Input != nil && len(req.Images) != 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "either input or images is required, not both"})
+		return
+	}
+
 	truncate := true
 
 	if req.Truncate != nil && !*req.Truncate {
 		truncate = false
 	}
 
+	// handle textual inputs if provided
 	var input []string
+	if req.Input != nil {
 
-	switch i := req.Input.(type) {
-	case string:
-		if len(i) > 0 {
-			input = append(input, i)
-		}
-	case []any:
-		for _, v := range i {
-			if _, ok := v.(string); !ok {
+		switch i := req.Input.(type) {
+		case string:
+			if len(i) > 0 {
+				input = append(input, i)
+			}
+		case []any:
+			for _, v := range i {
+				if _, ok := v.(string); !ok {
+					c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid input type"})
+					return
+				}
+				input = append(input, v.(string))
+			}
+		default:
+			if req.Input != nil {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid input type"})
 				return
 			}
-			input = append(input, v.(string))
 		}
-	default:
-		if req.Input != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid input type"})
+	}
+
+	// handle image inputs if provided
+	images := make([]llm.ImageData, len(req.Images))
+	if len(req.Images) != 0 {
+		model, err := GetModel(req.Model)
+		if err != nil {
+			switch {
+			case os.IsNotExist(err):
+				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("model '%s' not found", req.Model)})
+			case err.Error() == "invalid model name":
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			}
 			return
+		}
+
+		isMllama := checkMllamaModelFamily(model)
+		if isMllama && len(req.Images) > 1 {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "this model only supports one image: more than one image sent"})
+			return
+		}
+
+		for i := range req.Images {
+			if isMllama {
+				data, aspectRatioID, err := imageproc.Preprocess(req.Images[i])
+				if err != nil {
+					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "error processing image"})
+					return
+				}
+
+				buf := new(bytes.Buffer)
+				err = binary.Write(buf, binary.LittleEndian, data)
+				if err != nil {
+					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "error processing image"})
+					return
+				}
+
+				images[i] = llm.ImageData{ID: i, Data: buf.Bytes(), AspectRatioID: aspectRatioID}
+			} else {
+				images[i] = llm.ImageData{ID: i, Data: req.Images[i]}
+			}
 		}
 	}
 
@@ -397,7 +457,7 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 
 	checkpointLoaded := time.Now()
 
-	if len(input) == 0 {
+	if len(input) == 0 && len(images) == 0 {
 		c.JSON(http.StatusOK, api.EmbedResponse{Model: req.Model, Embeddings: [][]float32{}})
 		return
 	}
@@ -408,61 +468,93 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 		return
 	}
 
-	var count int
-	for i, s := range input {
-		tokens, err := r.Tokenize(c.Request.Context(), s)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		ctxLen := min(opts.NumCtx, int(kvData.ContextLength()))
-		if len(tokens) > ctxLen {
-			if !truncate {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "input length exceeds maximum context length"})
-				return
-			}
-
-			tokens = tokens[:ctxLen]
-			s, err = r.Detokenize(c.Request.Context(), tokens)
+	// handle textual inputs if provided
+	if req.Input != nil {
+		var count int
+		for i, s := range input {
+			tokens, err := r.Tokenize(c.Request.Context(), s)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
+
+			ctxLen := min(opts.NumCtx, int(kvData.ContextLength()))
+			if len(tokens) > ctxLen {
+				if !truncate {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "input length exceeds maximum context length"})
+					return
+				}
+
+				tokens = tokens[:ctxLen]
+				s, err = r.Detokenize(c.Request.Context(), tokens)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+			}
+
+			count += len(tokens)
+
+			input[i] = s
 		}
 
-		count += len(tokens)
+		var g errgroup.Group
+		embeddings := make([][]float32, len(input))
+		for i, text := range input {
+			g.Go(func() error {
+				embedding, err := r.Embedding(c.Request.Context(), text)
+				if err != nil {
+					return err
+				}
+				embeddings[i] = normalize(embedding)
+				return nil
+			})
+		}
 
-		input[i] = s
+		if err := g.Wait(); err != nil {
+			slog.Error("embedding generation failed", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Errorf("failed to generate embeddings: %v", err)})
+			return
+		}
+		resp := api.EmbedResponse{
+			Model:           req.Model,
+			Embeddings:      embeddings,
+			TotalDuration:   time.Since(checkpointStart),
+			LoadDuration:    checkpointLoaded.Sub(checkpointStart),
+			PromptEvalCount: count,
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 
-	var g errgroup.Group
-	embeddings := make([][]float32, len(input))
-	for i, text := range input {
-		g.Go(func() error {
-			embedding, err := r.Embedding(c.Request.Context(), text)
-			if err != nil {
-				return err
-			}
-			embeddings[i] = normalize(embedding)
-			return nil
-		})
-	}
+	// handle image inputs if provided
+	if len(req.Images) != 0 {
+		var g errgroup.Group
+		embeddings := make([][]float32, len(images))
+		for i, img := range images {
+			g.Go(func() error {
+				embedding, err := r.Embedding(c.Request.Context(), img.Data)
+				if err != nil {
+					return err
+				}
+				embeddings[i] = normalize(embedding)
+				return nil
+			})
+		}
 
-	if err := g.Wait(); err != nil {
-		slog.Error("embedding generation failed", "error", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Errorf("failed to generate embeddings: %v", err)})
-		return
+		if err := g.Wait(); err != nil {
+			slog.Error("embedding generation failed", "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Errorf("failed to generate embeddings: %v", err)})
+			return
+		}
+		resp := api.EmbedResponse{
+			Model:           req.Model,
+			Embeddings:      embeddings,
+			TotalDuration:   time.Since(checkpointStart),
+			LoadDuration:    checkpointLoaded.Sub(checkpointStart),
+			PromptEvalCount: 0,
+		}
+		c.JSON(http.StatusOK, resp)
 	}
-
-	resp := api.EmbedResponse{
-		Model:           req.Model,
-		Embeddings:      embeddings,
-		TotalDuration:   time.Since(checkpointStart),
-		LoadDuration:    checkpointLoaded.Sub(checkpointStart),
-		PromptEvalCount: count,
-	}
-	c.JSON(http.StatusOK, resp)
 }
 
 func normalize(vec []float32) []float32 {

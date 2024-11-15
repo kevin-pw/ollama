@@ -37,7 +37,7 @@ type LlamaServer interface {
 	Ping(ctx context.Context) error
 	WaitUntilRunning(ctx context.Context) error
 	Completion(ctx context.Context, req CompletionRequest, fn func(CompletionResponse)) error
-	Embedding(ctx context.Context, input string) ([]float32, error)
+	Embedding(ctx context.Context, input any) ([]float32, error)
 	Tokenize(ctx context.Context, content string) ([]int, error)
 	Detokenize(ctx context.Context, tokens []int) (string, error)
 	Close() error
@@ -855,13 +855,14 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 
 type EmbeddingRequest struct {
 	Content string `json:"content"`
+	Images  []ImageData
 }
 
 type EmbeddingResponse struct {
 	Embedding []float32 `json:"embedding"`
 }
 
-func (s *llmServer) Embedding(ctx context.Context, input string) ([]float32, error) {
+func (s *llmServer) Embedding(ctx context.Context, input any) ([]float32, error) {
 	if err := s.sem.Acquire(ctx, 1); err != nil {
 		slog.Error("Failed to acquire semaphore", "error", err)
 		return nil, err
@@ -876,9 +877,25 @@ func (s *llmServer) Embedding(ctx context.Context, input string) ([]float32, err
 		return nil, fmt.Errorf("unexpected server status: %s", status.ToString())
 	}
 
-	data, err := json.Marshal(EmbeddingRequest{Content: input})
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling embed data: %w", err)
+	// Determine if the input is text or binary data
+	var data []byte
+	switch v := input.(type) {
+	case string:
+		// Handle text input
+		request := EmbeddingRequest{Content: v}
+		data, err = json.Marshal(request)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling embed data: %w", err)
+		}
+	case []byte:
+		// Handle binary (image) input
+		request := map[string]any{"image_data": v}
+		data, err = json.Marshal(request)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling image embed data: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported input type: %T", input)
 	}
 
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/embedding", s.port), bytes.NewBuffer(data))

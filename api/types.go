@@ -252,6 +252,10 @@ type EmbedRequest struct {
 	// Input is the input to embed.
 	Input any `json:"input"`
 
+	// Images is an optional list of base64-encoded images accompanying this
+	// request, for multimodal models.
+	Images []ImageData `json:"images,omitempty"`
+
 	// KeepAlive controls how long the model will stay loaded in memory following
 	// this request.
 	KeepAlive *Duration `json:"keep_alive,omitempty"`
