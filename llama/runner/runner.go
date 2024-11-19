@@ -618,6 +618,9 @@ func (s *Server) completion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//fmt.Println("completion request", "content", req.Prompt)
+	//fmt.Println("completion request", "images", req.Images)
+
 	// Set the headers to indicate streaming
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Transfer-Encoding", "chunked")
@@ -732,8 +735,9 @@ func (s *Server) completion(w http.ResponseWriter, r *http.Request) {
 }
 
 type EmbeddingRequest struct {
-	Content     string `json:"content"`
-	CachePrompt bool   `json:"cache_prompt"`
+	Content     string      `json:"content"`
+	Images      []ImageData `json:"image_data"`
+	CachePrompt bool        `json:"cache_prompt"`
 }
 
 type EmbeddingResponse struct {
@@ -750,6 +754,9 @@ func (s *Server) embeddings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	slog.Debug("embedding request", "content", req.Content)
+
+	fmt.Println("embedding request", "content", req.Content)
+	fmt.Println("embedding request", "images", req.Images)
 
 	seq, err := s.NewSequence(req.Content, nil, NewSequenceParams{embedding: true})
 	if err != nil {
