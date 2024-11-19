@@ -723,8 +723,9 @@ func (s *Server) completion(w http.ResponseWriter, r *http.Request) {
 }
 
 type EmbeddingRequest struct {
-	Content     string `json:"content"`
-	CachePrompt bool   `json:"cache_prompt"`
+	Content     string      `json:"content"`
+	Images      []ImageData `json:"image_data"`
+	CachePrompt bool        `json:"cache_prompt"`
 }
 
 type EmbeddingResponse struct {
@@ -742,7 +743,7 @@ func (s *Server) embeddings(w http.ResponseWriter, r *http.Request) {
 
 	slog.Debug("embedding request", "content", req.Content)
 
-	seq, err := s.NewSequence(req.Content, nil, NewSequenceParams{embedding: true})
+	seq, err := s.NewSequence(req.Content, req.Images, NewSequenceParams{embedding: true})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create new sequence: %v", err), http.StatusInternalServerError)
 		return
@@ -768,6 +769,7 @@ func (s *Server) embeddings(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("Failed to load cache: %v", err), http.StatusInternalServerError)
 				return
 			}
+			seq.crossAttention = s.image.NeedCrossAttention(seq.cache.Inputs...)
 			s.seqs[i] = seq
 			s.cond.Signal()
 			found = true

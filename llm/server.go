@@ -36,7 +36,7 @@ type LlamaServer interface {
 	Ping(ctx context.Context) error
 	WaitUntilRunning(ctx context.Context) error
 	Completion(ctx context.Context, req CompletionRequest, fn func(CompletionResponse)) error
-	Embedding(ctx context.Context, input string) ([]float32, error)
+	Embedding(ctx context.Context, inputtext string, inputimage []ImageData) ([]float32, error)
 	Tokenize(ctx context.Context, content string) ([]int, error)
 	Detokenize(ctx context.Context, tokens []int) (string, error)
 	Close() error
@@ -862,14 +862,15 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 }
 
 type EmbeddingRequest struct {
-	Content string `json:"content"`
+	Content string      `json:"content"`
+	Images  []ImageData `json:"image_data"`
 }
 
 type EmbeddingResponse struct {
 	Embedding []float32 `json:"embedding"`
 }
 
-func (s *llmServer) Embedding(ctx context.Context, input string) ([]float32, error) {
+func (s *llmServer) Embedding(ctx context.Context, inputtext string, inputimage []ImageData) ([]float32, error) {
 	if err := s.sem.Acquire(ctx, 1); err != nil {
 		if errors.Is(err, context.Canceled) {
 			slog.Info("aborting embedding request due to client closing the connection")
@@ -888,12 +889,22 @@ func (s *llmServer) Embedding(ctx context.Context, input string) ([]float32, err
 		return nil, fmt.Errorf("unexpected server status: %s", status.ToString())
 	}
 
-	data, err := json.Marshal(EmbeddingRequest{Content: input})
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling embed data: %w", err)
+	request := map[string]any{
+		"content":      inputtext,
+		"image_data":   inputimage,
+		"cache_prompt": true,
 	}
 
-	r, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/embedding", s.port), bytes.NewBuffer(data))
+	// Handling JSON marshaling with special characters unescaped.
+	buffer := &bytes.Buffer{}
+	enc := json.NewEncoder(buffer)
+	enc.SetEscapeHTML(false)
+
+	if err := enc.Encode(request); err != nil {
+		return nil, fmt.Errorf("failed to marshal data: %v", err)
+	}
+
+	r, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/embedding", s.port), buffer)
 	if err != nil {
 		return nil, fmt.Errorf("error creating embed request: %w", err)
 	}
