@@ -438,7 +438,7 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 
 	checkpointLoaded := time.Now()
 
-	if len(input) == 0 {
+	if len(input) == 0 && len(images) == 0 {
 		c.JSON(http.StatusOK, api.EmbedResponse{Model: req.Model, Embeddings: [][]float32{}})
 		return
 	}
@@ -479,15 +479,28 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 
 	var g errgroup.Group
 	embeddings := make([][]float32, len(input))
-	for i, text := range input {
-		g.Go(func() error {
-			embedding, err := r.Embedding(c.Request.Context(), text, images)
-			if err != nil {
-				return err
-			}
-			embeddings[i] = normalize(embedding)
-			return nil
-		})
+	if len(input) > 0 {
+		for i, text := range input {
+			g.Go(func() error {
+				embedding, err := r.Embedding(c.Request.Context(), text, images)
+				if err != nil {
+					return err
+				}
+				embeddings[i] = normalize(embedding)
+				return nil
+			})
+		}
+	} else if len(images) > 0 {
+		for i := range images {
+			g.Go(func() error {
+				embedding, err := r.Embedding(c.Request.Context(), "", images)
+				if err != nil {
+					return err
+				}
+				embeddings[i] = normalize(embedding)
+				return nil
+			})
+		}
 	}
 
 	if err := g.Wait(); err != nil {
@@ -581,7 +594,7 @@ func (s *Server) EmbeddingsHandler(c *gin.Context) {
 	}
 
 	// an empty request loads the model
-	if req.Prompt == "" {
+	if req.Prompt == "" && len(images) == 0 {
 		c.JSON(http.StatusOK, api.EmbeddingResponse{Embedding: []float64{}})
 		return
 	}
