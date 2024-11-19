@@ -885,8 +885,8 @@ func (s *llmServer) Embedding(ctx context.Context, inputtext string, inputimage 
 	}
 
 	request := map[string]any{
-		"prompt":     inputtext,
-		"stream":     true,
+		"content": inputtext,
+		// "stream":     true,
 		"image_data": inputimage,
 	}
 
