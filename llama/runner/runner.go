@@ -186,6 +186,8 @@ func (s *Server) inputs(prompt string, images []ImageData) ([]input, error) {
 			inputs = append(inputs, input{token: t})
 		}
 
+		fmt.Println("Tokens appended!")
+
 		// image - generate image embedding
 		if i < len(matches) {
 			n, _ := strconv.Atoi(matches[i][1])
@@ -202,6 +204,9 @@ func (s *Server) inputs(prompt string, images []ImageData) ([]input, error) {
 				return nil, fmt.Errorf("invalid image index: %d", n)
 			}
 
+			fmt.Println("Image found with index ", imageIndex)
+			fmt.Println("And aspect ratioID ", images[imageIndex].AspectRatioID)
+
 			embed, err := s.image.NewEmbed(s.lc, images[imageIndex].Data, images[imageIndex].AspectRatioID)
 			if err != nil {
 				return nil, err
@@ -212,6 +217,15 @@ func (s *Server) inputs(prompt string, images []ImageData) ([]input, error) {
 			}
 		}
 	}
+
+	fmt.Println("Prompt is: ", prompt)
+	// Iterate over the slice and print each input
+	// for i, in := range inputs {
+	// 	fmt.Printf("Input %d: token=%d, embed=%v\n", i, in.token, in.embed[0])
+	// 	if i > 10 {
+	// 		break
+	// 	}
+	// }
 
 	return inputs, nil
 }
@@ -756,9 +770,9 @@ func (s *Server) embeddings(w http.ResponseWriter, r *http.Request) {
 	slog.Debug("embedding request", "content", req.Content)
 
 	fmt.Println("embedding request", "content", req.Content)
-	fmt.Println("embedding request", "images", req.Images)
+	fmt.Println("embedding request", "images", len(req.Images) != 0)
 
-	seq, err := s.NewSequence(req.Content, nil, NewSequenceParams{embedding: true})
+	seq, err := s.NewSequence(req.Content, req.Images, NewSequenceParams{embedding: true})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create new sequence: %v", err), http.StatusInternalServerError)
 		return
@@ -784,6 +798,7 @@ func (s *Server) embeddings(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("Failed to load cache: %v", err), http.StatusInternalServerError)
 				return
 			}
+			seq.crossAttention = s.image.NeedCrossAttention(seq.cache.Inputs...)
 			s.seqs[i] = seq
 			s.cond.Signal()
 			found = true

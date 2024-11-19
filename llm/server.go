@@ -857,8 +857,8 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 }
 
 type EmbeddingRequest struct {
-	Content string `json:"content"`
-	Images  []ImageData
+	Content string      `json:"content"`
+	Images  []ImageData `json:"image_data"`
 }
 
 type EmbeddingResponse struct {
@@ -887,7 +887,8 @@ func (s *llmServer) Embedding(ctx context.Context, inputtext string, inputimage 
 	request := map[string]any{
 		"content": inputtext,
 		// "stream":     true,
-		"image_data": inputimage,
+		"image_data":   inputimage,
+		"cache_prompt": true,
 	}
 
 	// Handling JSON marshaling with special characters unescaped.
