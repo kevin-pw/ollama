@@ -367,6 +367,47 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 		truncate = false
 	}
 
+	model, err := GetModel(req.Model)
+	if err != nil {
+		switch {
+		case os.IsNotExist(err):
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("model '%s' not found", req.Model)})
+		case err.Error() == "invalid model name":
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	isMllama := checkMllamaModelFamily(model)
+	if isMllama && len(req.Images) > 1 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "this model only supports one image: more than one image sent"})
+		return
+	}
+
+	images := make([]llm.ImageData, len(req.Images))
+	for i := range req.Images {
+		if isMllama {
+			data, aspectRatioID, err := imageproc.Preprocess(req.Images[i])
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "error processing image"})
+				return
+			}
+
+			buf := new(bytes.Buffer)
+			err = binary.Write(buf, binary.LittleEndian, data)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "error processing image"})
+				return
+			}
+
+			images[i] = llm.ImageData{ID: i, Data: buf.Bytes(), AspectRatioID: aspectRatioID}
+		} else {
+			images[i] = llm.ImageData{ID: i, Data: req.Images[i]}
+		}
+	}
+
 	var input []string
 
 	switch i := req.Input.(type) {
@@ -440,7 +481,7 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 	embeddings := make([][]float32, len(input))
 	for i, text := range input {
 		g.Go(func() error {
-			embedding, err := r.Embedding(c.Request.Context(), text)
+			embedding, err := r.Embedding(c.Request.Context(), text, images)
 			if err != nil {
 				return err
 			}
@@ -492,6 +533,47 @@ func (s *Server) EmbeddingsHandler(c *gin.Context) {
 		return
 	}
 
+	model, err := GetModel(req.Model)
+	if err != nil {
+		switch {
+		case os.IsNotExist(err):
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("model '%s' not found", req.Model)})
+		case err.Error() == "invalid model name":
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	isMllama := checkMllamaModelFamily(model)
+	if isMllama && len(req.Images) > 1 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "this model only supports one image: more than one image sent"})
+		return
+	}
+
+	images := make([]llm.ImageData, len(req.Images))
+	for i := range req.Images {
+		if isMllama {
+			data, aspectRatioID, err := imageproc.Preprocess(req.Images[i])
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "error processing image"})
+				return
+			}
+
+			buf := new(bytes.Buffer)
+			err = binary.Write(buf, binary.LittleEndian, data)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "error processing image"})
+				return
+			}
+
+			images[i] = llm.ImageData{ID: i, Data: buf.Bytes(), AspectRatioID: aspectRatioID}
+		} else {
+			images[i] = llm.ImageData{ID: i, Data: req.Images[i]}
+		}
+	}
+
 	r, _, _, err := s.scheduleRunner(c.Request.Context(), req.Model, []Capability{}, req.Options, req.KeepAlive)
 	if err != nil {
 		handleScheduleError(c, req.Model, err)
@@ -504,7 +586,7 @@ func (s *Server) EmbeddingsHandler(c *gin.Context) {
 		return
 	}
 
-	embedding, err := r.Embedding(c.Request.Context(), req.Prompt)
+	embedding, err := r.Embedding(c.Request.Context(), req.Prompt, images)
 	if err != nil {
 		slog.Info(fmt.Sprintf("embedding generation failed: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Errorf("failed to generate embedding: %v", err)})

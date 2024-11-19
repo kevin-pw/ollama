@@ -37,7 +37,7 @@ type LlamaServer interface {
 	Ping(ctx context.Context) error
 	WaitUntilRunning(ctx context.Context) error
 	Completion(ctx context.Context, req CompletionRequest, fn func(CompletionResponse)) error
-	Embedding(ctx context.Context, input string) ([]float32, error)
+	Embedding(ctx context.Context, inputtext string, inputimage []ImageData) ([]float32, error)
 	Tokenize(ctx context.Context, content string) ([]int, error)
 	Detokenize(ctx context.Context, tokens []int) (string, error)
 	Close() error
@@ -858,13 +858,14 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 
 type EmbeddingRequest struct {
 	Content string `json:"content"`
+	Images  []ImageData
 }
 
 type EmbeddingResponse struct {
 	Embedding []float32 `json:"embedding"`
 }
 
-func (s *llmServer) Embedding(ctx context.Context, input string) ([]float32, error) {
+func (s *llmServer) Embedding(ctx context.Context, inputtext string, inputimage []ImageData) ([]float32, error) {
 	if err := s.sem.Acquire(ctx, 1); err != nil {
 		if errors.Is(err, context.Canceled) {
 			slog.Info("aborting embedding request due to client closing the connection")
@@ -883,7 +884,7 @@ func (s *llmServer) Embedding(ctx context.Context, input string) ([]float32, err
 		return nil, fmt.Errorf("unexpected server status: %s", status.ToString())
 	}
 
-	data, err := json.Marshal(EmbeddingRequest{Content: input})
+	data, err := json.Marshal(EmbeddingRequest{Content: inputtext, Images: inputimage})
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling embed data: %w", err)
 	}
