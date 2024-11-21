@@ -490,7 +490,10 @@ func (s *Server) processBatch(tokenBatch *llama.Batch, embedBatch *llama.Batch) 
 			embed := s.lc.GetEmbeddingsSeq(seq.cache.Id)
 			if embed == nil {
 				embed = s.lc.GetEmbeddingsIth(seq.iBatch)
+				fmt.Println("Getting Ith embedding number: ", i)
 			}
+
+			fmt.Println("Processing the the following sequence number: ", i)
 
 			seq.embedding <- embed
 			s.removeSequence(i, "")
