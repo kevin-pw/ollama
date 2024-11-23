@@ -17857,9 +17857,6 @@ static int llama_decode_internal(
         struct ggml_tensor * res  = ggml_graph_node(gf, -1);
         struct ggml_tensor * embd = ggml_graph_node(gf, -2);
 
-        //YOYOYO Let's make the embedding layer a different layer
-        //struct ggml_tensor * embd = ggml_graph_node(gf, -8);
-
         if (lctx.n_outputs == 0) {
             // no output
             res  = nullptr;
