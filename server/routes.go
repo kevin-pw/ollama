@@ -493,7 +493,7 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 	} else if len(images) > 0 {
 		for i := range images {
 			g.Go(func() error {
-				embedding, err := r.Embedding(c.Request.Context(), "", images)
+				embedding, err := r.Embedding(c.Request.Context(), fmt.Sprintf("[img-%d]", images[i].ID), images)
 				if err != nil {
 					return err
 				}

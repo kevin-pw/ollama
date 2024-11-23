@@ -885,8 +885,7 @@ func (s *llmServer) Embedding(ctx context.Context, inputtext string, inputimage 
 	}
 
 	request := map[string]any{
-		"content": inputtext,
-		// "stream":     true,
+		"content":      inputtext,
 		"image_data":   inputimage,
 		"cache_prompt": true,
 	}
@@ -900,13 +899,7 @@ func (s *llmServer) Embedding(ctx context.Context, inputtext string, inputimage 
 		return nil, fmt.Errorf("failed to marshal data: %v", err)
 	}
 
-	// data, err := json.Marshal(EmbeddingRequest{Content: inputtext, Images: inputimage})
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error marshaling embed data: %w", err)
-	// }
-
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/embedding", s.port), buffer)
-	//r, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/embedding", s.port), bytes.NewBuffer(data))
 	if err != nil {
 		return nil, fmt.Errorf("error creating embed request: %w", err)
 	}
