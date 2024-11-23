@@ -478,8 +478,9 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 	}
 
 	var g errgroup.Group
-	embeddings := make([][]float32, len(input))
+	var embeddings [][]float32
 	if len(input) > 0 {
+		embeddings = make([][]float32, len(input))
 		for i, text := range input {
 			g.Go(func() error {
 				embedding, err := r.Embedding(c.Request.Context(), text, images)
@@ -491,6 +492,7 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 			})
 		}
 	} else if len(images) > 0 {
+		embeddings = make([][]float32, len(images))
 		for i := range images {
 			g.Go(func() error {
 				embedding, err := r.Embedding(c.Request.Context(), fmt.Sprintf("[img-%d]", images[i].ID), images)
