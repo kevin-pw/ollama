@@ -178,8 +178,6 @@ func (s *Server) inputs(prompt string, images []ImageData) ([]input, error) {
 			inputs = append(inputs, input{token: t})
 		}
 
-		fmt.Println("Tokens appended!")
-
 		// image - generate image embedding
 		if i < len(matches) {
 			n, _ := strconv.Atoi(matches[i][1])
@@ -196,9 +194,6 @@ func (s *Server) inputs(prompt string, images []ImageData) ([]input, error) {
 				return nil, fmt.Errorf("invalid image index: %d", n)
 			}
 
-			fmt.Println("Image found with index ", imageIndex)
-			fmt.Println("And aspect ratioID ", images[imageIndex].AspectRatioID)
-
 			embed, err := s.image.NewEmbed(s.lc, images[imageIndex].Data, images[imageIndex].AspectRatioID)
 			if err != nil {
 				return nil, err
@@ -209,15 +204,6 @@ func (s *Server) inputs(prompt string, images []ImageData) ([]input, error) {
 			}
 		}
 	}
-
-	fmt.Println("Prompt is: ", prompt)
-	// Iterate over the slice and print each input
-	// for i, in := range inputs {
-	// 	fmt.Printf("Input %d: token=%d, embed=%v\n", i, in.token, in.embed[0])
-	// 	if i > 10 {
-	// 		break
-	// 	}
-	// }
 
 	return inputs, nil
 }
@@ -482,10 +468,7 @@ func (s *Server) processBatch(tokenBatch *llama.Batch, embedBatch *llama.Batch) 
 			embed := s.lc.GetEmbeddingsSeq(seq.cache.Id)
 			if embed == nil {
 				embed = s.lc.GetEmbeddingsIth(seq.iBatch)
-				fmt.Println("Getting Ith embedding number: ", i)
 			}
-
-			fmt.Println("Processing the the following sequence number: ", i)
 
 			seq.embedding <- embed
 			s.removeSequence(i, "")
@@ -627,9 +610,6 @@ func (s *Server) completion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//fmt.Println("completion request", "content", req.Prompt)
-	//fmt.Println("completion request", "images", req.Images)
-
 	// Set the headers to indicate streaming
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Transfer-Encoding", "chunked")
@@ -763,9 +743,6 @@ func (s *Server) embeddings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	slog.Debug("embedding request", "content", req.Content)
-
-	fmt.Println("embedding request", "content", req.Content)
-	fmt.Println("embedding request", "images", len(req.Images) != 0)
 
 	seq, err := s.NewSequence(req.Content, req.Images, NewSequenceParams{embedding: true})
 	if err != nil {
