@@ -386,6 +386,11 @@ func (s *Server) EmbedHandler(c *gin.Context) {
 		return
 	}
 
+	if !isMllama && len(req.Images) > 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "image embeddings are only supported for the llama family of vision models"})
+		return
+	}
+
 	images := make([]llm.ImageData, len(req.Images))
 	for i := range req.Images {
 		if isMllama {
@@ -564,6 +569,11 @@ func (s *Server) EmbeddingsHandler(c *gin.Context) {
 	isMllama := checkMllamaModelFamily(model)
 	if isMllama && len(req.Images) > 1 {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "this model only supports one image: more than one image sent"})
+		return
+	}
+
+	if !isMllama && len(req.Images) > 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "image embeddings are only supported for the llama family of vision models"})
 		return
 	}
 
