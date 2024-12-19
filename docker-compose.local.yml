@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollamaimgembed
+    container_name: ollama_local
+    environment:
+      - OLLAMA_MODELS=/usr/share/ollama/.ollama/models/
+    volumes:
+      - type: bind
+        source: /usr/share/ollama/.ollama/models/
+        target: /usr/share/ollama/.ollama/models/
+    entrypoint: ["sh", "-c", "mkdir -p /usr/share/ollama/.ollama/models && /bin/ollama serve"]
+    runtime: nvidia
+    ports:
+      - "11434:11434"
